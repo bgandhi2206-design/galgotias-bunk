@@ -31,15 +31,32 @@ export function SetupFlow() {
   const [remoteLoading, setRemoteLoading] = useState(true);
 
   useEffect(() => {
-    window.setTimeout(async () => {
+    let cancelled = false;
+    async function loadSetup() {
       const supabase = createSupabaseBrowserClient();
-      const { data: { user } } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
+      let user = null;
+      try {
+        const result = supabase ? await supabase.auth.getUser() : null;
+        user = result?.data.user ?? null;
+      } catch (authError) {
+        console.error("Failed to initialize authentication for setup:", authError);
+        if (!cancelled) setError("We could not verify your session. Check your connection and retry.");
+      }
+      if (cancelled) return;
       setUserId(user?.id ?? null);
       if (user) {
-        try { const stored = await loadRemoteStudentData(user.id); if (stored) { setProfile(stored.profile); setTarget(String(stored.settings.targetAttendance)); setCourses(stored.courses); setTimetable(stored.timetable); setAttendanceRecords(stored.attendanceRecords); } } catch (remoteError) { setError(remoteError instanceof Error ? remoteError.message : "Could not load your data."); }
+        try {
+          const stored = await loadRemoteStudentData(user.id);
+          if (!cancelled && stored) { setProfile(stored.profile); setTarget(String(stored.settings.targetAttendance)); setCourses(stored.courses); setTimetable(stored.timetable); setAttendanceRecords(stored.attendanceRecords); }
+        } catch (remoteError) {
+          console.error("Failed to load authenticated setup data:", remoteError);
+          if (!cancelled) setError(remoteError instanceof Error ? remoteError.message : "Could not load your data.");
+        }
       }
-      setRemoteLoading(false);
-    }, 0);
+      if (!cancelled) setRemoteLoading(false);
+    }
+    loadSetup();
+    return () => { cancelled = true; };
   }, []);
 
   const duplicateNames = useMemo(() => courses.map((course) => course.name.toLowerCase()).filter((name, index, list) => list.indexOf(name) !== index), [courses]);

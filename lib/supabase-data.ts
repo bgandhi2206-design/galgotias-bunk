@@ -4,15 +4,29 @@ import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 export async function loadRemoteStudentData(userId: string): Promise<StudentData | null> {
   const supabase = createSupabaseBrowserClient();
   if (!supabase) throw new Error("Supabase is not configured. Add the public keys to .env.local.");
-  const [profileResult, semesterResult, coursesResult, timetableResult, attendanceResult] = await Promise.all([
-    supabase.from("profiles").select("id").eq("id", userId).maybeSingle(),
+  let profileResult = await supabase.from("profiles").select("id").eq("id", userId).maybeSingle();
+  if (profileResult.error) {
+    console.error("Failed to load the authenticated user's profile:", profileResult.error);
+    throw profileResult.error;
+  }
+  if (!profileResult.data) {
+    profileResult = await supabase.from("profiles").upsert({ id: userId }).select("id").single();
+    if (profileResult.error) {
+      console.error("Failed to create the authenticated user's profile:", profileResult.error);
+      throw profileResult.error;
+    }
+  }
+  const [semesterResult, coursesResult, timetableResult, attendanceResult] = await Promise.all([
     supabase.from("semesters").select("semester, section, start_date, end_date, target_attendance").eq("user_id", userId).maybeSingle(),
     supabase.from("courses").select("id, name, code, faculty, conducted, attended").eq("user_id", userId).order("name"),
     supabase.from("timetable_entries").select("id, day, start_time, end_time, course_id, room").eq("user_id", userId),
     supabase.from("attendance_records").select("id, date, course_id, entry_id, status").eq("user_id", userId).order("date", { ascending: false }),
   ]);
-  const failure = [profileResult, semesterResult, coursesResult, timetableResult, attendanceResult].find((result) => result.error);
-  if (failure?.error) throw failure.error;
+  const failure = [semesterResult, coursesResult, timetableResult, attendanceResult].find((result) => result.error);
+  if (failure?.error) {
+    console.error("Failed to load authenticated user data:", failure.error);
+    throw failure.error;
+  }
   if (!semesterResult.data && !coursesResult.data?.length) return null;
   return {
     profile: { semester: semesterResult.data?.semester ?? "", section: semesterResult.data?.section ?? "", startDate: semesterResult.data?.start_date ?? "", endDate: semesterResult.data?.end_date ?? "" },

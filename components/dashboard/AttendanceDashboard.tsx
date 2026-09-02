@@ -40,18 +40,105 @@ export function AttendanceDashboard() {
   const skipInitialSave = useRef(true);
 
   useEffect(() => {
-    window.setTimeout(async () => {
-      const supabase = createSupabaseBrowserClient();
-      const { data: { user } } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
-      setUserId(user?.id ?? null);
-      setUserEmail(user?.email ?? "");
-      if (user) {
-        try { const stored = await loadRemoteStudentData(user.id); setData(stored); setBunkCourseId(stored?.courses[0]?.id ?? ""); } catch (error) { setLoadError(error instanceof Error ? error.message : "Could not load your data."); }
+  let cancelled = false;
+
+  async function loadDashboard() {
+    const supabase = createSupabaseBrowserClient();
+
+    if (!supabase) {
+      if (!cancelled) {
+        setLoadError("Could not connect to authentication.");
+        setLoaded(true);
       }
-      setRemoteReady(true);
+      return;
+    }
+
+    let user;
+    try {
+      const result = await supabase.auth.getUser();
+      user = result.data.user;
+    } catch (error) {
+      if (!cancelled) {
+        console.error("Failed to initialize authentication for the dashboard:", error);
+        setLoadError("We could not verify your session. Check your connection and retry.");
+        setLoaded(true);
+      }
+      return;
+    }
+
+    if (cancelled) return;
+
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+
+    setUserId(user.id);
+    setUserEmail(user.email ?? "");
+
+    try {
+      const stored = await loadRemoteStudentData(user.id);
+
+      if (cancelled) return;
+
+      setData(stored);
+      setBunkCourseId(stored?.courses[0]?.id ?? "");
+      setLoadError("");
+    } catch (error) {
+      if (!cancelled) {
+        console.error("Failed to load the authenticated user's dashboard data:", error);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "Could not load your data."
+        );
+      }
+    } finally {
+      if (!cancelled) {
+        setRemoteReady(true);
+        setLoaded(true);
+      }
+    }
+  }
+
+  loadDashboard();
+
+  return () => {
+    cancelled = true;
+  };
+}, [router]);
+
+  async function retryLoad() {
+    setLoaded(false);
+    setLoadError("");
+    setRemoteReady(false);
+    skipInitialSave.current = true;
+    const supabase = createSupabaseBrowserClient();
+    let user;
+    try {
+      const result = supabase ? await supabase.auth.getUser() : null;
+      user = result?.data.user ?? null;
+    } catch (error) {
+      console.error("Retry failed while initializing authentication:", error);
+      setLoadError("We could not verify your session. Check your connection and retry.");
       setLoaded(true);
-    }, 0);
-  }, []);
+      return;
+    }
+    if (!user) { router.replace("/login"); return; }
+    try {
+      const stored = await loadRemoteStudentData(user.id);
+      setUserId(user.id);
+      setUserEmail(user.email ?? "");
+      setData(stored);
+      setBunkCourseId(stored?.courses[0]?.id ?? "");
+      setRemoteReady(true);
+    } catch (error) {
+      console.error("Retry failed while loading authenticated user data:", error);
+      setLoadError(error instanceof Error ? error.message : "Could not load your data.");
+    } finally {
+      setLoaded(true);
+    }
+  }
   useEffect(() => {
     if (!remoteReady || !data || !userId) return;
     if (skipInitialSave.current) { skipInitialSave.current = false; return; }
@@ -72,7 +159,7 @@ export function AttendanceDashboard() {
   }, [data, selectedDate]);
 
   if (!loaded) return <div className="dashboard-shell dashboard-loading"><span>Loading your attendance...</span></div>;
-  if (loadError) return <div className="dashboard-shell"><main className="empty-dashboard"><div className="eyebrow">GB / ACCOUNT</div><h1>Couldn&apos;t load your data.</h1><p>{loadError}</p><Link className="button-primary" href="/login">Back to login →</Link></main></div>;
+  if (loadError) return <div className="dashboard-shell"><main className="empty-dashboard"><div className="eyebrow">GB / ACCOUNT</div><h1>Couldn&apos;t load your data.</h1><p>{loadError}</p><div className="data-actions"><button className="button-primary" onClick={retryLoad} type="button">Retry</button><Link className="button-secondary" href="/login">Back to login</Link></div></main></div>;
   if (!data) return <div className="dashboard-shell"><header className="dashboard-nav"><Link className="brand" href="/"><span className="brand-mark">GB</span>Galgotias Bunk</Link><Link className="back-link" href="/">Back to home</Link></header><main className="empty-dashboard"><div className="eyebrow">GB / ATTENDANCE</div><h1>Let&apos;s set this up.</h1><p>Add your courses and timetable first.</p><Link className="button-primary" href="/setup">Set up my timetable →</Link></main></div>;
 
   const target = data.settings.targetAttendance;
@@ -114,7 +201,7 @@ export function AttendanceDashboard() {
   function resetData() {
     if (window.confirm("Reset all courses, timetable, and attendance data?")) { clearStudentData(); setData(null); }
   }
-  async function logout() { const supabase = createSupabaseBrowserClient(); if (supabase) await supabase.auth.signOut(); router.push("/login"); }
+  async function logout() { const supabase = createSupabaseBrowserClient(); if (supabase) await supabase.auth.signOut(); clearStudentData(); setData(null); router.replace("/login"); }
   function courseStatus(course: Course) { return status(attendancePercent(course)); }
   return <div className="dashboard-shell"><header className="dashboard-nav"><Link className="brand" href="/"><span className="brand-mark">GB</span>Galgotias Bunk</Link><div className="dashboard-nav-right"><span className="account-email">{userEmail}</span><span className="dashboard-date">{new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</span><Link className="back-link" href="/setup">Edit setup</Link><button className="logout-button" onClick={logout} type="button">Log out</button></div></header>
     <main className="dashboard-main"><div className="dashboard-header"><div><div className="eyebrow">GB / ATTENDANCE</div><h1>Semester {data.profile.semester}, section {data.profile.section}.</h1><p>Check the numbers before you make plans.</p></div><Link className="dashboard-action" href="/setup">Manage data</Link></div>

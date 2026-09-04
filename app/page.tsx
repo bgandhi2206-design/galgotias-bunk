@@ -1,8 +1,6 @@
 import { Icon } from "@/components/landing/Icon";
 import { Navbar } from "@/components/landing/Navbar";
 import { ProductPreview } from "@/components/landing/ProductPreview";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { redirect } from "next/navigation";
 
 const features = [
   ["01", "ATTENDANCE", "78.4%", "Current attendance"],
@@ -15,12 +13,7 @@ function MiniWeek() {
   return <div className="mini-week" aria-label="Miniature timetable"><span /><i /><i /><i /><i /></div>;
 }
 
-export default async function Home() {
-  const supabase = await createSupabaseServerClient();
-  if (!supabase) redirect("/login");
-  const { data: { user } } = await supabase.auth.getUser();
-  redirect(user ? "/dashboard" : "/login");
-
+export default function Home() {
   return <div className="site-shell" id="top"><Navbar /><main>
     <section className="hero"><div className="container"><div className="hero-heading"><div className="hero-copy"><div className="eyebrow">GB / ATTENDANCE</div><h1>Wanna skip?<br /><span>Check your attendance</span><br />first.</h1><p>See your timetable, attendance, and how many classes you can safely miss.</p><div className="hero-actions"><a className="button-primary" href="/dashboard">Check My Attendance <Icon name="arrow" size={15} /></a><a className="button-secondary" href="#how-it-works">See How It Works <Icon name="arrow" size={15} /></a></div></div><div className="hero-aside"><span>STATUS / ONLINE</span><strong>78.4%</strong><small>overall attendance</small></div></div><ProductPreview /></div></section>
     <section className="section feature-section" id="features"><div className="container"><div className="section-intro"><div><div className="section-label">ATTENDANCE, SORTED.</div><h2 className="section-title">Everything you need before you skip.</h2></div><p>Classes, numbers, and the answer to the only question that matters.</p></div><div className="feature-grid">{features.map(([number, title, value, detail], index) => <article className={`feature-card feature-${index + 1}`} key={title}><span className="feature-number">{number}</span><div className="feature-content"><h3>{title}</h3>{index === 2 ? <MiniWeek /> : <strong className="feature-value">{value}</strong>}<span className="feature-detail">{detail}</span></div></article>)}</div></div></section>
